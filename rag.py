@@ -82,26 +82,72 @@ def gemini_llm(model=None):
     client = genai.Client()  # reads GEMINI_API_KEY from the environment
     model = model or os.getenv("GEMINI_MODEL", MODEL)
 
-    def call(system, user):
+    def call(system, user, tools=None):
+        # With Python functions in `tools`, the SDK runs the tool loop: it calls the
+        # functions the model asks for and sends the results back until the model answers.
         response = client.models.generate_content(
             model=model,
             contents=user,
-            config=types.GenerateContentConfig(system_instruction=system, temperature=0),
+            config=types.GenerateContentConfig(system_instruction=system, temperature=0, tools=tools),
         )
         return response.text or REFUSAL  # empty text (e.g. blocked by a safety filter) -> refuse
 
     return call
 
 
+TEE_TIME_API = os.getenv("TEE_TIME_API", "http://localhost:5080")
+TOOLS_PROMPT = (
+    " You can also look up and book tee times with your tools: for questions about open tee times, "
+    "use the tools instead of the context. Before booking, repeat the date, time, players and guests "
+    "and only book after the member confirms."
+)
+
+
+def tee_time_tools(member_id=None, http=None):
+    """Tools the model may call. They use the Tee-Time Booking API (github.com/ridaali62/tee-time-booking).
+
+    Visitors can only look up tee times; booking needs a signed-in member.
+    """
+    import httpx
+
+    http = http or httpx.Client(base_url=TEE_TIME_API, timeout=10)
+
+    def find_tee_times(date: str, players: int) -> list[dict] | dict:
+        """List tee times on a date (YYYY-MM-DD) that still have room for `players` players."""
+        try:
+            response = http.get("/slots", params={"date": date})
+            response.raise_for_status()
+        except httpx.HTTPError:
+            return {"error": "The tee-time system is not available right now."}
+        return [
+            {"teeSlotId": s["id"], "time": s["startTime"][11:16], "openPlaces": s["capacity"] - s["bookedPlayers"],
+             "weatherDelay": s["weatherDelay"]}
+            for s in response.json() if s["capacity"] - s["bookedPlayers"] >= players
+        ]
+
+    def book_tee_time(tee_slot_id: int, players: int, guests: int) -> dict:
+        """Book a tee time for the signed-in member. Only call after the member has confirmed."""
+        try:
+            response = http.post("/bookings", json={
+                "memberId": member_id, "teeSlotId": tee_slot_id, "players": players, "guests": guests})
+        except httpx.HTTPError:
+            return {"error": "The tee-time system is not available right now."}
+        return response.json()  # the booking, or {"error": "<which club rule was broken>"}
+
+    return [find_tee_times, book_tee_time] if member_id else [find_tee_times]
+
+
 def _norm(s):
     return s.replace("–", "-").lower()
 
 
-def answer(question, index, llm, k=TOP_K, member=True):
-    """Retrieve the top-k chunks the user may see, ask the LLM, and return {answer, sources}."""
+def answer(question, index, llm, k=TOP_K, member=True, tools=None, today=None):
+    """Retrieve the top-k chunks the user may see, ask the LLM (optionally with tools), return {answer, sources}."""
     hits = index.search(question, k, member)
     context = "\n\n".join(f"[{c['doc']} – {c['section']}]\n{c['text']}" for c in hits)
-    text = llm(SYSTEM_PROMPT, f"Context:\n{context}\n\nQuestion: {question}").strip()
+    system = SYSTEM_PROMPT + (TOOLS_PROMPT if tools else "")
+    user = (f"Today is {today}.\n\n" if today else "") + f"Context:\n{context}\n\nQuestion: {question}"
+    text = llm(system, user, tools=tools).strip()
     if text.strip("'\" ").startswith(REFUSAL.rstrip(".")):
         return {"answer": REFUSAL, "sources": []}
     cited = [f"{c['doc']} – {c['section']}" for c in hits if _norm(f"[{c['doc']} – {c['section']}]") in _norm(text)]

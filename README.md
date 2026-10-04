@@ -6,6 +6,19 @@ A retrieval-augmented generation (RAG) assistant that answers club members' ques
 
 **Public vs. members-only content:** `docs/public/` is what the club's public website would show (dining, dress code, events, parking, contacts, app help). `docs/members/` is member-portal content (guest fees, tee-time and cancellation rules, billing, facilities). Visitors only get answers from public content; signed-in members get both.
 
+## Agent tools: tee times
+
+Besides answering from documents, the concierge can **act**. It has two tools that call the [Tee-Time Booking API](https://github.com/ridaali62/tee-time-booking):
+
+| Tool | Who can use it | What it does |
+|---|---|---|
+| `find_tee_times(date, players)` | everyone | `GET /slots`, returns only slots with enough open places, plus the weather-delay flag |
+| `book_tee_time(tee_slot_id, players, guests)` | signed-in members only | `POST /bookings` for that member. The API enforces the club rules (7-day window, 4 players, 2 guests) and returns the reason if a rule is broken |
+
+The model decides when to call a tool. The Gemini SDK runs the loop (call tool → send result back → final answer). The prompt tells it to repeat the details and **only book after the member confirms**. Booking rules live in the booking API, not in the prompt, so the AI can't book something the club's rules don't allow.
+
+Example: *"Any tee times this Saturday morning for 3 of us?"* → `find_tee_times("2026-10-10", 3)` → "07:10 and 07:30 are open…" → *"Book 07:10, one guest"* → confirms → `book_tee_time(2, 3, 1)`.
+
 ## Why
 
 Club members ask the same questions all day: dining hours, guest rules, tee-time booking, cancellation fees. An assistant that answers instantly is only useful if members can trust it, so every answer must come from the club's own content and show its source. When the documents don't cover a question, it must say so instead of guessing.
@@ -28,10 +41,11 @@ question ──► embed ──► top-k chunks (cosine) ─┘
 |---|---|
 | `rag.py` | Loading, chunking, embeddings, the vector index, retrieval and the grounded prompt |
 | `app.py` | FastAPI app: `POST /ask`, `GET /health`, chat page at `/` |
+| `rag.py` → `tee_time_tools` | The two agent tools that call the Tee-Time Booking API |
 | `static/index.html` | Chat page (plain HTML + JavaScript) |
 | `eval/questions.json` | 30 evaluation questions: 24 answerable, 6 not answerable from the documents |
 | `eval.py` | Measures retrieval hit rate, answer accuracy and refusal accuracy |
-| `tests/test_rag.py` | pytest tests for chunking, public/members-only filtering, the answer shape and the refusal path (offline, no API key) |
+| `tests/test_rag.py` | pytest tests for chunking, public/members-only filtering, the answer shape, the refusal path and the agent tools (offline, no API key; the booking API is mocked) |
 | `.github/workflows/ci.yml` | Runs the tests on every push and pull request |
 
 ## Run it
@@ -44,12 +58,12 @@ copy .env.example .env        # then put your free Gemini API key in .env (aistu
 uvicorn app:app --reload
 ```
 
-Open http://localhost:8000 and ask, e.g., *"Can I bring two guests on Saturday?"*
+Open http://localhost:8000 and ask, e.g., *"Can I bring two guests on Saturday?"*. For tee-time questions, also start the [Tee-Time Booking API](https://github.com/ridaali62/tee-time-booking) on http://localhost:5080 (or set `TEE_TIME_API`).
 
 API:
 
 ```
-POST /ask   {"question": "When is the lottery deadline?", "member": true}
+POST /ask   {"question": "When is the lottery deadline?", "member_id": 1}
 → {"answer": "Enter by Wednesday at 6:00 pm ... [Tee-Time Booking – Weekend lottery]",
    "sources": ["Tee-Time Booking – Weekend lottery"]}
 GET /health → {"status": "ok", "chunks": 70}

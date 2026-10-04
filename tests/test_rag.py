@@ -2,6 +2,7 @@
 
 They use a fake embedder and a fake LLM, so they run offline without an API key.
 """
+import httpx
 import numpy as np
 
 import rag
@@ -56,7 +57,7 @@ def test_answer_returns_text_and_cited_sources():
     index = rag.Index(rag.load_chunks(), fake_embed)
     top = index.search("How many guests can I bring?")[0]
     source = f"{top['doc']} – {top['section']}"
-    llm = lambda system, user: f"Up to two guests. [{source}]"
+    llm = lambda system, user, tools=None: f"Up to two guests. [{source}]"
     result = rag.answer("How many guests can I bring?", index, llm)
     assert set(result) == {"answer", "sources"}
     assert result["sources"] == [source]
@@ -65,13 +66,13 @@ def test_answer_returns_text_and_cited_sources():
 def test_citation_with_plain_hyphen_still_counts():
     index = rag.Index(rag.load_chunks(), fake_embed)
     top = index.search("valet")[0]
-    llm = lambda system, user: f"Fridays and Saturdays. [{top['doc']} - {top['section']}]"
+    llm = lambda system, user, tools=None: f"Fridays and Saturdays. [{top['doc']} - {top['section']}]"
     assert rag.answer("valet", index, llm)["sources"] == [f"{top['doc']} – {top['section']}"]
 
 
 def test_refusal_returns_no_sources():
     index = rag.Index(rag.load_chunks(), fake_embed)
-    llm = lambda system, user: rag.REFUSAL
+    llm = lambda system, user, tools=None: rag.REFUSAL
     assert rag.answer("What is the Wi-Fi password?", index, llm) == {"answer": rag.REFUSAL, "sources": []}
 
 
@@ -79,7 +80,7 @@ def test_prompt_contains_context_and_refusal_rule():
     index = rag.Index(rag.load_chunks(), fake_embed)
     seen = {}
 
-    def llm(system, user):
+    def llm(system, user, tools=None):
         seen["system"], seen["user"] = system, user
         return rag.REFUSAL
 
@@ -87,3 +88,58 @@ def test_prompt_contains_context_and_refusal_rule():
     assert rag.REFUSAL in seen["system"]
     assert "Question: When is the lottery deadline?" in seen["user"]
     assert "[Tee-Time Booking – Weekend lottery]" in seen["user"]
+
+
+SLOTS = [
+    {"id": 1, "startTime": "2026-10-10T07:00:00", "capacity": 4, "bookedPlayers": 3, "weatherDelay": False},
+    {"id": 2, "startTime": "2026-10-10T07:10:00", "capacity": 4, "bookedPlayers": 0, "weatherDelay": True},
+]
+
+
+def fake_api(handler):
+    return httpx.Client(base_url="http://tee-time.test", transport=httpx.MockTransport(handler))
+
+
+def test_find_tee_times_only_returns_slots_with_room():
+    find = rag.tee_time_tools(http=fake_api(lambda request: httpx.Response(200, json=SLOTS)))[0]
+    assert find("2026-10-10", 2) == [{"teeSlotId": 2, "time": "07:10", "openPlaces": 4, "weatherDelay": True}]
+
+
+def test_visitors_can_only_look_up_members_can_also_book():
+    assert [t.__name__ for t in rag.tee_time_tools(None, http=fake_api(None))] == ["find_tee_times"]
+    assert [t.__name__ for t in rag.tee_time_tools(7, http=fake_api(None))] == ["find_tee_times", "book_tee_time"]
+
+
+def test_book_tee_time_sends_member_and_returns_rule_errors():
+    sent = {}
+
+    def handler(request):
+        sent["body"] = request.read()
+        return httpx.Response(400, json={"error": "Only 1 place(s) left in this tee time."})
+
+    book = rag.tee_time_tools(7, http=fake_api(handler))[1]
+    assert book(1, 2, 0) == {"error": "Only 1 place(s) left in this tee time."}
+    assert b'"memberId":7' in sent["body"].replace(b" ", b"")
+
+
+def test_tools_report_when_booking_system_is_down():
+    def handler(request):
+        raise httpx.ConnectError("down")
+
+    find = rag.tee_time_tools(http=fake_api(handler))[0]
+    assert "error" in find("2026-10-10", 1)
+
+
+def test_answer_passes_tools_and_date_to_llm():
+    index = rag.Index(rag.load_chunks(), fake_embed)
+    seen = {}
+
+    def llm(system, user, tools=None):
+        seen.update(system=system, user=user, tools=tools)
+        return "07:10 is open."
+
+    tools = rag.tee_time_tools(http=fake_api(None))
+    rag.answer("Any tee times on Saturday?", index, llm, tools=tools, today="2026-10-08")
+    assert seen["tools"] is tools
+    assert "Today is 2026-10-08." in seen["user"]
+    assert "only book after the member confirms" in seen["system"]

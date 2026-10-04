@@ -26,7 +26,7 @@
     <input id="q" placeholder="Can I bring two guests on Saturday?" autocomplete="off" required>
     <button>Ask</button>
   </form>
-  <label><input type="checkbox" id="member" checked> Signed in as a member (members-only rules are searched too)</label>
+  <label><input type="checkbox" id="member" checked> Signed in as demo member #1 (members-only rules, and tee-time booking)</label>
   <script>
     const log = document.getElementById("log");
     const input = document.getElementById("q");
@@ -53,7 +53,7 @@
         const res = await fetch("/ask", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, member: document.getElementById("member").checked }),
+          body: JSON.stringify({ question, member_id: document.getElementById("member").checked ? 1 : null }),
         });
         const data = await res.json();
         add(data.answer, "bot", data.sources);

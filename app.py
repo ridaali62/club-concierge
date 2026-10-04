@@ -1,4 +1,5 @@
 """FastAPI app: POST /ask, GET /health and a simple chat page at /."""
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,12 +17,14 @@ llm = rag.gemini_llm()
 
 class Question(BaseModel):
     question: str
-    member: bool = False  # demo flag; a real app would take this from the signed-in session
+    member_id: int | None = None  # demo field; a real app would take this from the signed-in session
 
 
 @app.post("/ask")
 def ask(q: Question):
-    return rag.answer(q.question, index, llm, member=q.member)
+    tools = rag.tee_time_tools(q.member_id)  # visitors: look up only; members: look up and book
+    return rag.answer(q.question, index, llm, member=q.member_id is not None, tools=tools,
+                      today=date.today().isoformat())
 
 
 @app.get("/health")
