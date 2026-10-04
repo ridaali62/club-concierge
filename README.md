@@ -70,7 +70,7 @@ python eval.py --retrieval-only  # retrieval only, no API key needed
 
 | Version | Change | Hit rate | Answer accuracy | Refusals |
 |---|---|---|---|---|
-| v1 | 400-word chunks, 50 overlap, k=4 | _not run yet_ | _not run yet_ | _not run yet_ |
+| v1 | 400-word chunks, 50 overlap, k=4 | 24/24 (100%) | _not run yet_ | _not run yet_ |
 
 ## Design decisions
 
