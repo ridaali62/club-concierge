@@ -84,7 +84,9 @@ python eval.py --retrieval-only  # retrieval only, no API key needed
 
 | Version | Change | Hit rate | Answer accuracy | Refusals |
 |---|---|---|---|---|
-| v1 | 400-word chunks, 50 overlap, k=4 | 24/24 (100%) | _not run yet_ | _not run yet_ |
+| v1 | 400-word chunks, 50 overlap, k=4, `gemini-3.5-flash-lite` | 24/24 (100%) | 24/24 (100%) | 6/6 |
+
+Answer accuracy is checked by key-fact matching (e.g. the answer must contain "$110"), which is lenient. A stricter check (a second model or human grading) is listed under next steps.
 
 ## Design decisions
 
@@ -97,7 +99,7 @@ python eval.py --retrieval-only  # retrieval only, no API key needed
   1. The prompt says to answer only from the context and to reply with one exact sentence when the answer isn't there.
   2. Every answer must cite `[Doc – Section]`, and `sources` lists only sections that were actually retrieved *and* cited.
   3. The evaluation set includes questions the documents can't answer, so refusals are measured, not assumed.
-- **Model:** Google Gemini (`gemini-2.5-flash`, free tier) at temperature 0, so the same question gives the same answer and evaluation runs are repeatable. The model is set in one place (`GEMINI_MODEL`), and the pipeline only needs a function `(system, user) -> text`, so swapping in another provider (Claude, Azure OpenAI) is a one-function change. If the model returns no text (for example, a safety filter blocks it), the app replies with the refusal sentence instead of failing.
+- **Model:** Google Gemini (`gemini-3.5-flash-lite`, free tier; its daily free allowance is higher than the larger Flash models') at temperature 0, so the same question gives the same answer and evaluation runs are repeatable. The model is set in one place (`GEMINI_MODEL`), and the pipeline only needs a function `(system, user) -> text`, so swapping in another provider (Claude, Azure OpenAI) is a one-function change. If the model returns no text (for example, a safety filter blocks it), the app replies with the refusal sentence instead of failing.
 
 ## Limitations and next steps
 

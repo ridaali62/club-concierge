@@ -6,6 +6,7 @@ Usage:  python eval.py                  (needs GEMINI_API_KEY)
 """
 import json
 import sys
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -13,12 +14,26 @@ from dotenv import load_dotenv
 import rag
 
 
+def patient(llm, tries=5, wait=30):
+    """Wrap the LLM so a busy free-tier model (503/429) pauses the run instead of crashing it."""
+    def call(*args, **kwargs):
+        for attempt in range(tries):
+            try:
+                return llm(*args, **kwargs)
+            except Exception as error:  # the SDK raises ServerError/ClientError after its own retries
+                if attempt == tries - 1:
+                    raise
+                print(f"       (model busy: {str(error)[:60]}... waiting {wait}s)", flush=True)
+                time.sleep(wait)
+    return call
+
+
 def main():
     load_dotenv()
     retrieval_only = "--retrieval-only" in sys.argv
     questions = json.loads((Path(__file__).parent / "eval" / "questions.json").read_text(encoding="utf-8"))
     index = rag.Index(rag.load_chunks(), rag.sentence_transformer_embedder())
-    llm = None if retrieval_only else rag.gemini_llm()
+    llm = None if retrieval_only else patient(rag.gemini_llm())
 
     answerable = [q for q in questions if q["doc"]]
     unanswerable = [q for q in questions if not q["doc"]]

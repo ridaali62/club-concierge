@@ -6,7 +6,7 @@ import numpy as np
 
 DOCS_DIR = Path(__file__).parent / "docs"
 REFUSAL = "That isn't in the club's documents."
-MODEL = "gemini-2.5-flash"  # override with GEMINI_MODEL in .env
+MODEL = "gemini-3.5-flash-lite"  # override with GEMINI_MODEL in .env
 CHUNK_WORDS = 400
 OVERLAP_WORDS = 50
 TOP_K = 4
@@ -79,7 +79,10 @@ def gemini_llm(model=None):
     from google import genai
     from google.genai import types
 
-    client = genai.Client()  # reads GEMINI_API_KEY from the environment
+    # Reads GEMINI_API_KEY from the environment. Free-tier models are sometimes overloaded
+    # (429/503), so retry with exponential backoff instead of failing the member's question.
+    client = genai.Client(http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(
+        attempts=6, initial_delay=2, max_delay=60, http_status_codes=[429, 500, 503])))
     model = model or os.getenv("GEMINI_MODEL", MODEL)
 
     def call(system, user, tools=None):
