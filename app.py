@@ -16,11 +16,12 @@ llm = rag.claude_llm()
 
 class Question(BaseModel):
     question: str
+    member: bool = False  # demo flag; a real app would take this from the signed-in session
 
 
 @app.post("/ask")
 def ask(q: Question):
-    return rag.answer(q.question, index, llm)
+    return rag.answer(q.question, index, llm, member=q.member)
 
 
 @app.get("/health")

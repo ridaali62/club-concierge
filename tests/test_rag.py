@@ -36,6 +36,20 @@ def test_all_club_docs_load_with_metadata():
     chunks = rag.load_chunks()
     assert len({c["doc"] for c in chunks}) == 16
     assert all(c["doc"] and c["section"] and c["text"] for c in chunks)
+    assert {c["visibility"] for c in chunks} == {"public", "members"}
+
+
+def test_visitors_only_search_public_content():
+    index = rag.Index(rag.load_chunks(), fake_embed)
+    assert all(c["visibility"] == "public" for c in index.search("guest pool tee lottery", k=10, member=False))
+
+
+def test_members_can_search_members_only_content():
+    index = rag.Index(rag.load_chunks(), fake_embed)
+    member_hits = index.search("When is the lottery deadline?", k=10, member=True)
+    visitor_hits = index.search("When is the lottery deadline?", k=10, member=False)
+    assert any(c["visibility"] == "members" for c in member_hits)
+    assert not any(c["visibility"] == "members" for c in visitor_hits)
 
 
 def test_answer_returns_text_and_cited_sources():

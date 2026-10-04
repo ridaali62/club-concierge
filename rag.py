@@ -40,12 +40,14 @@ def split_words(text, size=CHUNK_WORDS, overlap=OVERLAP_WORDS):
 
 
 def load_chunks(docs_dir=DOCS_DIR):
+    """Load docs/public (anyone) and docs/members (signed-in members only)."""
     chunks = []
-    for path in sorted(Path(docs_dir).glob("*.md")):
-        title, sections = parse_doc(path.read_text(encoding="utf-8"))
-        for section, text in sections:
-            for piece in split_words(text):
-                chunks.append({"doc": title, "section": section, "text": piece})
+    for visibility in ("public", "members"):
+        for path in sorted((Path(docs_dir) / visibility).glob("*.md")):
+            title, sections = parse_doc(path.read_text(encoding="utf-8"))
+            for section, text in sections:
+                for piece in split_words(text):
+                    chunks.append({"doc": title, "section": section, "text": piece, "visibility": visibility})
     return chunks
 
 
@@ -64,9 +66,11 @@ class Index:
         self.chunks, self.embed = chunks, embed
         self.vectors = np.asarray(embed([f"{c['doc']} – {c['section']}: {c['text']}" for c in chunks]))
 
-    def search(self, question, k=TOP_K):
+    def search(self, question, k=TOP_K, member=True):
+        """Top-k chunks; visitors who aren't signed in only search public content."""
         scores = self.vectors @ np.asarray(self.embed([question]))[0]
-        return [self.chunks[i] | {"score": float(scores[i])} for i in np.argsort(-scores)[:k]]
+        allowed = [i for i in np.argsort(-scores) if member or self.chunks[i]["visibility"] == "public"]
+        return [self.chunks[i] | {"score": float(scores[i])} for i in allowed[:k]]
 
 
 def claude_llm():
@@ -96,9 +100,9 @@ def _norm(s):
     return s.replace("–", "-").lower()
 
 
-def answer(question, index, llm, k=TOP_K):
-    """Retrieve the top-k chunks, ask the LLM, and return {answer, sources}."""
-    hits = index.search(question, k)
+def answer(question, index, llm, k=TOP_K, member=True):
+    """Retrieve the top-k chunks the user may see, ask the LLM, and return {answer, sources}."""
+    hits = index.search(question, k, member)
     context = "\n\n".join(f"[{c['doc']} – {c['section']}]\n{c['text']}" for c in hits)
     text = llm(SYSTEM_PROMPT, f"Context:\n{context}\n\nQuestion: {question}").strip()
     if text.strip("'\" ").startswith(REFUSAL.rstrip(".")):
