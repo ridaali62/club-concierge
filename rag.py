@@ -1,11 +1,12 @@
 """Club Concierge RAG pipeline: load -> chunk -> embed -> retrieve -> answer with citations."""
+import os
 from pathlib import Path
 
 import numpy as np
 
 DOCS_DIR = Path(__file__).parent / "docs"
 REFUSAL = "That isn't in the club's documents."
-MODEL = "claude-opus-5-5"
+MODEL = "gemini-2.5-flash"  # override with GEMINI_MODEL in .env
 CHUNK_WORDS = 400
 OVERLAP_WORDS = 50
 TOP_K = 4
@@ -73,25 +74,21 @@ class Index:
         return [self.chunks[i] | {"score": float(scores[i])} for i in allowed[:k]]
 
 
-def claude_llm():
-    """Returns a function (system, user) -> answer text, backed by the Claude API."""
-    import anthropic
+def gemini_llm(model=None):
+    """Returns a function (system, user) -> answer text, backed by the Gemini API (free tier)."""
+    from google import genai
+    from google.genai import types
 
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
+    client = genai.Client()  # reads GEMINI_API_KEY from the environment
+    model = model or os.getenv("GEMINI_MODEL", MODEL)
 
     def call(system, user):
-        response = client.beta.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            output_config={"effort": "low"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",  # if a safety classifier declines, retry on a fallback model
+        response = client.models.generate_content(
+            model=model,
+            contents=user,
+            config=types.GenerateContentConfig(system_instruction=system, temperature=0),
         )
-        if response.stop_reason == "refusal":
-            return REFUSAL
-        return "".join(block.text for block in response.content if block.type == "text")
+        return response.text or REFUSAL  # empty text (e.g. blocked by a safety filter) -> refuse
 
     return call
 

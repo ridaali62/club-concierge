@@ -18,7 +18,7 @@ docs/*.md ──► load + chunk ──► embed ──► NumPy vector index
 question ──► embed ──► top-k chunks (cosine) ─┘
                               │
                               ▼
-            Claude: "answer only from the context, cite [Doc – Section]"
+            Gemini: "answer only from the context, cite [Doc – Section]"
                               │
                               ▼
                      {answer, sources[]}
@@ -40,7 +40,7 @@ Python 3.11+.
 
 ```
 pip install -r requirements.txt
-copy .env.example .env        # then put your Anthropic API key in .env
+copy .env.example .env        # then put your free Gemini API key in .env (aistudio.google.com)
 uvicorn app:app --reload
 ```
 
@@ -60,7 +60,7 @@ Tests: `pytest`
 ## Evaluation
 
 ```
-python eval.py                   # full run (calls the API)
+python eval.py                   # full run (calls the Gemini API)
 python eval.py --retrieval-only  # retrieval only, no API key needed
 ```
 
@@ -83,7 +83,7 @@ python eval.py --retrieval-only  # retrieval only, no API key needed
   1. The prompt says to answer only from the context and to reply with one exact sentence when the answer isn't there.
   2. Every answer must cite `[Doc – Section]`, and `sources` lists only sections that were actually retrieved *and* cited.
   3. The evaluation set includes questions the documents can't answer, so refusals are measured, not assumed.
-- **Model:** Claude (`claude-opus-5-5`) at low effort: short factual answers don't need deep reasoning. Server-side fallback is on, so a request a safety classifier declines is retried on a fallback model.
+- **Model:** Google Gemini (`gemini-2.5-flash`, free tier) at temperature 0, so the same question gives the same answer and evaluation runs are repeatable. The model is set in one place (`GEMINI_MODEL`), and the pipeline only needs a function `(system, user) -> text`, so swapping in another provider (Claude, Azure OpenAI) is a one-function change. If the model returns no text (for example, a safety filter blocks it), the app replies with the refusal sentence instead of failing.
 
 ## Limitations and next steps
 

@@ -11,7 +11,7 @@ import rag
 load_dotenv()
 app = FastAPI(title="Club Concierge")
 index = rag.Index(rag.load_chunks(), rag.sentence_transformer_embedder())
-llm = rag.claude_llm()
+llm = rag.gemini_llm()
 
 
 class Question(BaseModel):

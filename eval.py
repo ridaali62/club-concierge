@@ -1,7 +1,7 @@
 """Evaluate Club Concierge on eval/questions.json.
 
 Reports retrieval hit rate, answer accuracy and refusal accuracy.
-Usage:  python eval.py                  (needs ANTHROPIC_API_KEY)
+Usage:  python eval.py                  (needs GEMINI_API_KEY)
         python eval.py --retrieval-only (no API calls)
 """
 import json
@@ -18,7 +18,7 @@ def main():
     retrieval_only = "--retrieval-only" in sys.argv
     questions = json.loads((Path(__file__).parent / "eval" / "questions.json").read_text(encoding="utf-8"))
     index = rag.Index(rag.load_chunks(), rag.sentence_transformer_embedder())
-    llm = None if retrieval_only else rag.claude_llm()
+    llm = None if retrieval_only else rag.gemini_llm()
 
     answerable = [q for q in questions if q["doc"]]
     unanswerable = [q for q in questions if not q["doc"]]
